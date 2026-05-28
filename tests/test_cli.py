@@ -238,3 +238,60 @@ def test_restart_valid_time(runner, watson, mocker, at_dt):
     # Test that the last frame can be restarted
     result = runner.invoke(cli.restart, ['--at', at_dt], obj=watson)
     assert result.exit_code == 0
+
+
+# watson note (per-frame notes)
+
+def test_start_message_persists_through_stop(runner, watson):
+    result = runner.invoke(cli.start, ['a-project', '-m', 'fixed the bug'],
+                           obj=watson)
+    assert result.exit_code == 0
+    assert 'note: fixed the bug' in result.output
+
+    result = runner.invoke(cli.stop, [], obj=watson)
+    assert result.exit_code == 0
+    assert watson.frames[-1].note == 'fixed the bug'
+    assert 'note: fixed the bug' in result.output
+
+
+def test_stop_message_overrides_start_message(runner, watson):
+    runner.invoke(cli.start, ['a-project', '-m', 'guessed wrong'], obj=watson)
+    result = runner.invoke(cli.stop, ['-m', 'actually fixed it'], obj=watson)
+    assert result.exit_code == 0
+    assert watson.frames[-1].note == 'actually fixed it'
+
+
+def test_note_command_sets_note_on_existing_frame(runner, watson):
+    runner.invoke(cli.start, ['a-project'], obj=watson)
+    result = runner.invoke(cli.stop, [], obj=watson)
+    frame_id = OutputParser.get_frame_id(result.output)
+
+    result = runner.invoke(
+        cli.note, ['--id', frame_id, 'wrote', 'the', 'tests'], obj=watson)
+    assert result.exit_code == 0
+    assert watson.frames[frame_id].note == 'wrote the tests'
+
+
+def test_note_command_defaults_to_current_frame(runner, watson):
+    runner.invoke(cli.start, ['a-project'], obj=watson)
+    result = runner.invoke(cli.note, ['working on it'], obj=watson)
+    assert result.exit_code == 0
+    assert watson.current['note'] == 'working on it'
+
+
+def test_note_command_opens_editor_when_text_omitted(runner, watson, mocker):
+    runner.invoke(cli.start, ['a-project'], obj=watson)
+    runner.invoke(cli.stop, [], obj=watson)
+    mocker.patch('click.edit', return_value='from the editor\n')
+
+    result = runner.invoke(cli.note, [], obj=watson)
+    assert result.exit_code == 0
+    assert watson.frames[-1].note == 'from the editor'
+
+
+def test_note_appears_in_log_output(runner, watson):
+    runner.invoke(cli.start, ['a-project', '-m', 'visible in log'], obj=watson)
+    runner.invoke(cli.stop, [], obj=watson)
+    result = runner.invoke(cli.log, ['--no-pager'], obj=watson)
+    assert result.exit_code == 0
+    assert 'note: visible in log' in result.output

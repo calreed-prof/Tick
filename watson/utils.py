@@ -298,6 +298,7 @@ def frames_to_json(frames):
             ('stop', frame.stop.isoformat()),
             ('project', frame.project),
             ('tags', frame.tags),
+            ('note', frame.note),
         ])
         for frame in frames
     ]
@@ -320,6 +321,7 @@ def frames_to_csv(frames):
             ('stop', frame.stop.format('YYYY-MM-DD HH:mm:ss')),
             ('project', frame.project),
             ('tags', ', '.join(frame.tags)),
+            ('note', frame.note or ''),
         ])
         for frame in frames
     ]

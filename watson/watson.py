@@ -143,6 +143,8 @@ class Watson(object):
                         'start': self._format_date(self.current['start']),
                         'tags': self.current['tags'],
                     }
+                    if self.current.get('note'):
+                        current['note'] = self.current['note']
                 else:
                     current = {}
 
@@ -203,7 +205,8 @@ class Watson(object):
         self._current = {
             'project': value['project'],
             'start': start,
-            'tags': value.get('tags') or []
+            'tags': value.get('tags') or [],
+            'note': value.get('note') or None,
         }
 
         if self._old_state is None:
@@ -233,7 +236,7 @@ class Watson(object):
     def is_started(self):
         return bool(self.current)
 
-    def add(self, project, from_date, to_date, tags):
+    def add(self, project, from_date, to_date, tags, note=None):
         if not project:
             raise WatsonError("No project given.")
         if from_date > to_date:
@@ -242,11 +245,12 @@ class Watson(object):
         default_tags = self.config.getlist('default_tags', project)
         tags = (tags or []) + default_tags
 
-        frame = self.frames.add(project, from_date, to_date, tags=tags)
+        frame = self.frames.add(project, from_date, to_date, tags=tags,
+                                note=note)
         return frame
 
     def start(self, project, tags=None, restart=False, start_at=None,
-              gap=True):
+              gap=True, note=None):
         if self.is_started:
             raise WatsonError(
                 "Project {} is already started.".format(
@@ -272,13 +276,15 @@ class Watson(object):
 
         new_frame = {'project': project, 'tags': deduplicate(tags)}
         new_frame['start'] = start_at
+        if note:
+            new_frame['note'] = note
         if not gap:
             stop_of_prev_frame = self.frames[-1].stop
             new_frame['start'] = stop_of_prev_frame
         self.current = new_frame
         return self.current
 
-    def stop(self, stop_at=None):
+    def stop(self, stop_at=None, note=None):
         if not self.is_started:
             raise WatsonError("No project started.")
 
@@ -297,7 +303,8 @@ class Watson(object):
             raise WatsonError('Task cannot end in the future.')
 
         frame = self.frames.add(
-            old['project'], old['start'], stop_at, tags=old['tags']
+            old['project'], old['start'], stop_at, tags=old['tags'],
+            note=note if note is not None else old.get('note'),
         )
         self.current = None
 

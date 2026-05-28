@@ -987,3 +987,50 @@ def test_validate_report_options(watson):
     assert not watson._validate_report_options(["project_foo", "project_bar"],
                                                ["project_foo", "project_bar"])
     assert watson._validate_report_options(None, None)
+
+
+# notes
+
+def test_frame_dump_includes_note():
+    frame = Frame(3600, 7200, 'foo', 'abc123', tags=['t'], note='hello')
+    dumped = frame.dump()
+    assert len(dumped) == 7
+    assert dumped[-1] == 'hello'
+
+
+def test_frame_loads_legacy_six_tuple():
+    """Frames written before the note field load with note=None."""
+    legacy = (3600, 7200, 'foo', 'abc123', ['t'], 7200)
+    frame = Frame(*legacy)
+    assert frame.note is None
+
+
+def test_start_with_note(watson):
+    watson.start('foo', note='investigating the bug')
+    assert watson.current['note'] == 'investigating the bug'
+
+
+def test_stop_persists_note_from_start(watson):
+    watson.start('foo', note='investigating the bug')
+    watson.stop()
+    assert watson.frames[0].note == 'investigating the bug'
+
+
+def test_stop_note_overrides_start_note(watson):
+    watson.start('foo', note='guessed wrong')
+    watson.stop(note='actually fixed it')
+    assert watson.frames[0].note == 'actually fixed it'
+
+
+def test_add_with_note(watson):
+    watson.add(project='foo', tags=[], from_date=6000, to_date=7000,
+               note='backfilled session')
+    assert watson.frames[0].note == 'backfilled session'
+
+
+def test_save_persists_note_on_current(watson):
+    watson.start('foo', note='in-progress note')
+    watson.save()
+
+    fresh = Watson(config_dir=watson._dir)
+    assert fresh.current.get('note') == 'in-progress note'

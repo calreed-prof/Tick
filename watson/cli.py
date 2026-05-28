@@ -180,17 +180,20 @@ def help(ctx, command):
     click.echo(cmd.get_help(ctx))
 
 
-def _start(watson, project, tags, restart=False, start_at=None, gap=True):
+def _start(watson, project, tags, restart=False, start_at=None, gap=True,
+           note=None):
     """
     Start project with given list of tags and save status.
     """
     current = watson.start(project, tags, restart=restart, start_at=start_at,
-                           gap=gap,)
+                           gap=gap, note=note)
     click.echo("Starting project {}{} at {}".format(
         style('project', project),
         (" " if current['tags'] else "") + style('tags', current['tags']),
         style('time', "{:HH:mm}".format(current['start']))
     ))
+    if current.get('note'):
+        click.echo("  note: {}".format(current['note']))
     watson.save()
 
 
@@ -209,11 +212,14 @@ def _start(watson, project, tags, restart=False, start_at=None, gap=True):
               help="Confirm addition of new project.")
 @click.option('-b', '--confirm-new-tag', is_flag=True, default=False,
               help="Confirm creation of new tag.")
+@click.option('-m', '--message', 'note', default=None,
+              help="Attach a note describing what you'll be working on. "
+                   "Persisted to the frame when it is stopped.")
 @click.pass_obj
 @click.pass_context
 @catch_watson_error
 def start(ctx, watson, confirm_new_project, confirm_new_tag, args, at_,
-          gap_=True):
+          gap_=True, note=None):
     """
     Start monitoring time for the given project.
     You can add tags indicating more specifically what you are working on with
@@ -276,16 +282,19 @@ def start(ctx, watson, confirm_new_project, confirm_new_tag, args, at_,
             watson.config.getboolean('options', 'stop_on_start')):
         ctx.invoke(stop, at_=at_)
 
-    _start(watson, project, tags, start_at=at_, gap=gap_)
+    _start(watson, project, tags, start_at=at_, gap=gap_, note=note)
 
 
 @cli.command(context_settings={'ignore_unknown_options': True})
 @click.option('--at', 'at_', type=DateTime, default=None,
               help=('Stop frame at this time. Must be in '
                     '(YYYY-MM-DDT)?HH:MM(:SS)? format.'))
+@click.option('-m', '--message', 'note', default=None,
+              help="Attach a note to the frame being stopped. Overrides any "
+                   "note set when the frame was started.")
 @click.pass_obj
 @catch_watson_error
-def stop(watson, at_):
+def stop(watson, at_, note=None):
     """
     Stop monitoring time for the current project.
 
@@ -299,7 +308,7 @@ def stop(watson, at_):
     $ watson stop --at 13:37
     Stopping project apollo11, started an hour ago and stopped 30 minutes ago. (id: e9ccd52) # noqa: E501
     """
-    frame = watson.stop(stop_at=at_)
+    frame = watson.stop(stop_at=at_, note=note)
     output_str = "Stopping project {}{}, started {} and stopped {}. (id: {})"
     click.echo(output_str.format(
         style('project', frame.project),
@@ -308,6 +317,8 @@ def stop(watson, at_):
         style('time', frame.stop.humanize()),
         style('short_id', frame.id),
     ))
+    if frame.note:
+        click.echo("  note: {}".format(frame.note))
     watson.save()
 
 
@@ -1120,19 +1131,26 @@ def log(watson, current, reverse, from_, to, projects, tags, ignore_projects,
             )
         )
 
-        _print("\n".join(
-            "\t{id}  {start} to {stop}  {delta:>11}  {project}{tags}".format(
-                delta=format_timedelta(frame.stop - frame.start),
-                project=style('project', '{:>{}}'.format(
-                    frame.project, longest_project
-                )),
-                tags=(" "*2 if frame.tags else "") + style('tags', frame.tags),
-                start=style('time', '{:HH:mm}'.format(frame.start)),
-                stop=style('time', '{:HH:mm}'.format(frame.stop)),
-                id=style('short_id', frame.id)
+        def _format_frame(frame):
+            line = (
+                "\t{id}  {start} to {stop}  {delta:>11}  "
+                "{project}{tags}".format(
+                    delta=format_timedelta(frame.stop - frame.start),
+                    project=style('project', '{:>{}}'.format(
+                        frame.project, longest_project
+                    )),
+                    tags=(" "*2 if frame.tags else "")
+                    + style('tags', frame.tags),
+                    start=style('time', '{:HH:mm}'.format(frame.start)),
+                    stop=style('time', '{:HH:mm}'.format(frame.stop)),
+                    id=style('short_id', frame.id),
+                )
             )
-            for frame in frames
-        ))
+            if frame.note:
+                line += "\n\t           note: {}".format(frame.note)
+            return line
+
+        _print("\n".join(_format_frame(frame) for frame in frames))
 
     _final_print(lines)
 
@@ -1216,9 +1234,12 @@ def frames(watson):
               help="Confirm addition of new project.")
 @click.option('-b', '--confirm-new-tag', is_flag=True, default=False,
               help="Confirm creation of new tag.")
+@click.option('-m', '--message', 'note', default=None,
+              help="Attach a note to the newly added frame.")
 @click.pass_obj
 @catch_watson_error
-def add(watson, args, from_, to, confirm_new_project, confirm_new_tag):
+def add(watson, args, from_, to, confirm_new_project, confirm_new_tag,
+        note=None):
     """
     Add time to a project with tag(s) that was not tracked live.
 
@@ -1249,7 +1270,8 @@ def add(watson, args, from_, to, confirm_new_project, confirm_new_tag):
         confirm_tags(tags, watson.tags)
 
     # add a new frame, call watson save to update state files
-    frame = watson.add(project=project, tags=tags, from_date=from_, to_date=to)
+    frame = watson.add(project=project, tags=tags, from_date=from_, to_date=to,
+                       note=note)
     click.echo(
         "Adding project {}{}, started {} and stopped {}. (id: {})".format(
             style('project', frame.project),
@@ -1259,6 +1281,8 @@ def add(watson, args, from_, to, confirm_new_project, confirm_new_tag):
             style('short_id', frame.id)
         )
     )
+    if frame.note:
+        click.echo("  note: {}".format(frame.note))
     watson.save()
 
 
@@ -1295,7 +1319,8 @@ def edit(watson, confirm_new_project, confirm_new_tag, id):
         id = frame.id
     elif watson.is_started:
         frame = Frame(watson.current['start'], None, watson.current['project'],
-                      None, watson.current['tags'])
+                      None, watson.current['tags'],
+                      note=watson.current.get('note'))
     elif watson.frames:
         frame = watson.frames[-1]
         id = frame.id
@@ -1308,6 +1333,7 @@ def edit(watson, confirm_new_project, confirm_new_tag, id):
         'start': frame.start.format(datetime_format),
         'project': frame.project,
         'tags': frame.tags,
+        'note': frame.note or '',
     }
 
     if id:
@@ -1335,6 +1361,7 @@ def edit(watson, confirm_new_project, confirm_new_tag, id):
                     confirm_new_project):
                 confirm_project(project, watson.projects)
             tags = data['tags']
+            note = data.get('note') or None
             # Confirm creation of new tag(s) if that option is set
             if (watson.config.getboolean('options', 'confirm_new_tag') or
                     confirm_new_tag):
@@ -1372,9 +1399,10 @@ def edit(watson, confirm_new_project, confirm_new_tag, id):
 
     # we reach this when we break out of the while loop above
     if id:
-        watson.frames[id] = (project, start, stop, tags)
+        watson.frames[id] = (project, start, stop, tags, None, None, note)
     else:
-        watson.current = dict(start=start, project=project, tags=tags)
+        watson.current = dict(start=start, project=project, tags=tags,
+                              note=note)
 
     watson.save()
     click.echo(
@@ -1425,6 +1453,84 @@ def remove(watson, id, force):
 
     watson.save()
     click.echo("Frame removed.")
+
+
+@cli.command(name='note', context_settings={'ignore_unknown_options': True})
+@click.option('--id', 'frame_id', default=None, shell_complete=get_frames,
+              help="Frame id or index to attach the note to. Defaults to the "
+                   "current frame if running, otherwise the last frame.")
+@click.option('-e', '--edit', 'use_editor', is_flag=True, default=False,
+              help="Open $EDITOR even if note text was given on the command "
+                   "line.")
+@click.argument('text', nargs=-1)
+@click.pass_obj
+@catch_watson_error
+def note(watson, frame_id, use_editor, text):
+    """
+    Set or edit the note attached to a frame.
+
+    The note describes what was actually done during the session.
+    If TEXT is provided, it replaces the existing note. If TEXT is omitted
+    (or `-e/--edit` is given), `$EDITOR` is opened with the current note for
+    editing. Saving an empty buffer clears the note.
+
+    Example:
+
+    \b
+    $ watson note "rebuilt the launch sequence"
+    $ watson note --id e9ccd52 "and added the abort handler"
+    $ watson note --id -2          # opens $EDITOR
+    """
+    note_text = ' '.join(text) if text else None
+
+    target_current = False
+    if frame_id is None:
+        if watson.is_started:
+            target_current = True
+        elif watson.frames:
+            frame = watson.frames[-1]
+        else:
+            raise click.ClickException(
+                style('error', "No frames recorded yet. It's time to create "
+                               "your first one!"))
+    else:
+        frame = get_frame_from_argument(watson, frame_id)
+
+    if target_current:
+        existing = watson.current.get('note') or ''
+    else:
+        existing = frame.note or ''
+
+    if note_text is None or use_editor:
+        seed = note_text if note_text is not None else existing
+        edited = click.edit(seed)
+        if edited is None:
+            # User aborted the editor without saving.
+            click.echo("No change made.")
+            return
+        note_text = edited.strip() or None
+    else:
+        note_text = note_text or None
+
+    if target_current:
+        cur = watson.current
+        cur['note'] = note_text
+        watson.current = cur
+        click.echo("Note set on current frame ({}).".format(
+            style('project', cur['project'])))
+    else:
+        updated = frame._replace(note=note_text, updated_at=arrow.utcnow())
+        watson.frames[frame.id] = updated
+        click.echo("Note set on frame {} ({}).".format(
+            style('short_id', frame.id),
+            style('project', frame.project)))
+
+    if note_text:
+        click.echo("  note: {}".format(note_text))
+    else:
+        click.echo("  (note cleared)")
+
+    watson.save()
 
 
 @cli.command()
